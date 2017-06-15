@@ -15,6 +15,6 @@
  To publish to ivy. 
  Once your local copy has been published, you can call it from spark packages. This call will be different from the original call - your scala version will be appended to the name and the root of the call will now be default. The version number will also change to the version you've provided. For example:
  ```
- ./spark-shell --packages default:scalable-deeplearning_2.11:1.0.1
+ ./spark-shell --packages default:sparkdl_2.11:0.0.1
  ```
  Where you can run your modified code.
