@@ -1,5 +1,12 @@
 # Deep Learning for Spark MLlib
 
+# Features:
+Convolutional Layers
+Dense / Affine Layers
+Max Pooling Layers
+Relu Activation
+
+
 ## Contribution Guide
  To contribute to the project, you'll need to build and modify your cloned fork of the project. 
  
@@ -18,3 +25,7 @@
  ./spark-shell --packages default:sparkdl_2.11:0.0.1
  ```
  Where you can run your modified code.
+
+ ## Feedforward Neural Network
+
+ ## Convolutional Neural Network
