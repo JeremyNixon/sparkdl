@@ -20,6 +20,7 @@ package org.apache.spark.ml.dl
 import breeze.linalg.{*, argmax, convert, fliplr, flipud, kron, max, Axis}
 import breeze.linalg.{DenseMatrix => BDM, DenseVector => BDV}
 import breeze.numerics._
+import java.io.File
 import java.util.{ArrayList, List}
 
 import org.apache.spark.annotation.{Experimental, Since}
@@ -39,21 +40,81 @@ import org.apache.spark.sql.{Dataset, Row}
  * function for the backwards pass.
  */
 abstract class Layer {
+  // Initialize variables that are shared by all layers. Note that not every variable will
+  // be used by ever layer type (for example, the activation layers do not have weights).
+  /**
+   * Layer type, for example "Conv", "Dense", "Activation", and others.
+   */
   var layer_type: String = null
-  var delta: BDM[Double] = null
-  def prev_delta(delta: BDM[Double]): BDM[Double]
-  def forward(forward_data: BDM[Double]): BDM[Double]
-  def compute_gradient(backward_data: BDM[Double], delta: BDM[Double]): BDM[Double]
-  var weights: BDM[Double] = null
-  var moment1: BDM[Double] = null
-  var moment2: BDM[Double] = null
 
   /**
-   * Initializes weights for convolutional layer.
-   * Weights are random between -.005 and .005.
+   * The delta is the error signal passed back through the network during backpropagation.
+   */
+  var delta: BDM[Double] = null
+
+  /**
+   * The weights of each layer contain the parameters that transform the input feature map during
+   * the forward pass.
+   */
+  var weights: BDM[Double] = null
+
+  /**
+   * The first moment captures a moving average of the gradient, which is applied with a number of
+   * the optimizers (Momentum, Adam, and others.
+   */
+  var moment1: BDM[Double] = null
+
+  /**
+   * The second moment captures a moving average of the squared gradient, or the magnitude of the
+   * gradient. It is applied with the Adam optimizer.
+   */
+  var moment2: BDM[Double] = null
+
+
+  // Initialize functions that are shared by all layers. Note that not every layer type will
+  // use every function (for example, the activation layers do not call compute_gradient).
+  /**
+   * Compute the output of a layer given the input data or the input from the previous layer in
+   * the forward pass.
+   *
+   * @param forward_data
+   * @return
+   */
+  def forward(forward_data: BDM[Double]): BDM[Double]
+
+  /**
+   * Generate the error for the next layer back given the error from the previous layer
+   * during backpropagation.
+   *
+   * @param delta
+   * @return
+   */
+  def prev_delta(delta: BDM[Double]): BDM[Double]
+
+  /**
+   * Given the error signal, compute the gradient for layers with parameters during backproagation.
+   *
+   * @param backward_data
+   * @param delta
+   * @return
+   */
+  def compute_gradient(backward_data: BDM[Double], delta: BDM[Double]): BDM[Double]
+
+  /**
+   * Initializes weights for convolutional layer. Weights are random between -.005 and .005.
+   * Shape of the convolutional filter matrix is a vertical stack.
+   *
+   * @param num_filters
+   * @param prev_channels
+   * @param filter_height
+   * @param filter_width
+   * @param kind
+   * @return
    */
   def init_conv_parameters(num_filters: Int, prev_channels: Int, filter_height: Int,
      filter_width: Int, kind: String): BDM[Double] = {
+    // Convolutional filter matrix is a vertical stack of filters. Order is that for each
+    // previous channel, fill in the filters that map to the next impage map.
     val filters = BDM.zeros[Double](filter_height * num_filters * prev_channels, filter_width)
     val r = scala.util.Random
     for (j <- 0 until prev_channels) {
@@ -77,13 +138,30 @@ abstract class Layer {
  * Sequential also maintains the networks layers and learned weights for inference.
  */
 class Sequential() {
+  /**
+   * List for storing the layers in the network architecture.
+   */
   var layers: List[Layer] = new ArrayList[Layer]
+
+  /**
+   * Initialize optimizer 
+   */
+  var optimizer: Optimizer = null
+  var lr: Double = .01
+  var s: Double = .9
+  var r: Double = .999
+  var loss: String = "categorical_crossentropy"
+  var metrics: String = "accuracy"
+  var optimizer_type: String = "adam"
 
   def add(new_layer: Layer): Unit = {
     layers.add(new_layer)
+    if (new_layer.layer_type == "Dropout") {
+      layers.add(new Activation("linear"))
+    }
   }
 
-  def evaluate(x: BDM[Double], y: BDV[Double]): Double = {
+  def evaluate(x: BDM[Double], y: BDV[Double]): Unit = {
     var f = x
     // Forward
     for (layer <- 0 to this.layers.size-1) {
@@ -97,7 +175,8 @@ class Sequential() {
       if (diff(i) == 0) {count += 1}
       else {}
     }
-    count.toDouble/diff.size.toDouble
+    print("Val accuracy: ")
+    println(count.toDouble/diff.size.toDouble)
   }
 
   def get_batch(x_train: BDM[Double], y_train: BDV[Int], batch_size: Int):
@@ -114,12 +193,20 @@ class Sequential() {
     (x_batch, y_batch)
   }
 
+  def compile(loss: String, optimizer: Optimizer, metrics: String): Unit = {
+    this.optimizer = optimizer
+    this.loss = loss
+    this.metrics = metrics
+  }
 
-  def fit(dataset: Dataset[_], lr: Double = .001,
-           num_iters: Int = 1000, optimizer: String = "adam", s: Double = .9,
-           batch_size: Int = 16, r: Double = .999): Sequential = {
+  def fit(dataset: Dataset[_], num_iters: Int = 1000, batch_size: Int = 16): Sequential = {
 
-      val xArray = dataset.select("features").rdd.map(v => v.getAs[Vector](0))
+    val lr = this.optimizer.lr
+    val s = this.optimizer.s
+    val r = this.optimizer.r
+    val optimizer = this.optimizer.optimizer_type
+
+    val xArray = dataset.select("features").rdd.map(v => v.getAs[Vector](0))
       .map(v => new BDV[Double](v.toArray)).collect()
     val x = new BDM[Double](xArray.length, xArray(0).length)
     for (i <- 0 until xArray.length) {x(i, ::) := xArray(i).t}
@@ -208,14 +295,72 @@ class Sequential() {
         }
       }
       if (iterations % 10 == 0) {
-        println(evaluate(x(0 until 100, ::), y(0 until 100)))
+        evaluate(x(0 until 101, ::), y(0 until 101))
       }
     }
 //    println(evaluate(x(0 until 1000, ::), y(0 until 1000)))
     this
   }
 
+  def printToFile(f: java.io.File)(op: java.io.PrintWriter => Unit) {
+    val p = new java.io.PrintWriter(f)
+    try { op(p) } finally { p.close() }
+  }
 
+  def save(name: String): Unit = {
+    val model = this
+    var layers: Array[String] = new Array[String](model.layers.size)
+    var weights: List[BDM[Double]] = new ArrayList[BDM[Double]]
+
+    for (i <- 0 until model.layers.size) {
+      layers(i) = model.layers.get(i).layer_type
+      if (model.layers.get(i).layer_type == "Dense" || model.layers.get(i).layer_type ==
+        "Convolution2D") {
+        weights.add(model.layers.get(i).weights)
+      } else {}
+    }
+
+    val dir = new File(name)
+    dir.mkdir()
+
+    this.printToFile(new File(name + "/layers.txt")) {
+      p => layers.foreach(p.println)
+    }
+
+    var weights_index = 0
+    for(i <- 0 until model.layers.size) {
+      if (model.layers.get(i).layer_type == "Dense" || model.layers.get(i).layer_type ==
+        "Convolution2D") {
+        breeze.linalg.csvwrite(new File(name + "/weights" + i.toString),
+          weights.get(weights_index))
+        weights_index += 1
+      }
+    }
+  }
+
+
+}
+
+class Model() {
+  def load(name: String): Sequential = {
+    val seq: Sequential = new Sequential()
+    val lines = scala.io.Source.fromFile(name + "/layers.txt").mkString.split("\n")
+
+    for (i <- 0 until lines.length) {
+      if (lines(i) == "Convolution2D") {
+        seq.add(new Convolution2D(8, 1, 3, 3, 28, 28))
+        seq.layers.get(i).weights = breeze.linalg.csvread(new File(
+          name + "/weights" + i.toString))
+      }
+      if (lines(i) == "Dense") {
+        seq.add(new Dense(6272, 10))
+        seq.layers.get(i).weights = breeze.linalg.csvread(new File(name + "/weights" + i.toString))
+      }
+      if (lines(i) == "Activation" && i == 1) {seq.add(new Activation("relu"))}
+      if (lines(i) == "Activation" && i == 3) {seq.add(new Activation("softmax"))}
+    }
+    seq
+  }
 }
 
 class Dense(input_shape: Int, num_hidden: Int) extends Layer {
@@ -244,7 +389,26 @@ class Dense(input_shape: Int, num_hidden: Int) extends Layer {
   }
 }
 
+class Dropout(proportion: Double) extends Layer {
+  val r = scala.util.Random
+  this.layer_type = "Dropout"
 
+
+  override def forward(forward_data: BDM[Double]): BDM[Double] = {
+    // May need to do something fancy at inference time
+    forward_data.map(x => if (r.nextDouble < proportion) {0} else {x})
+  }
+
+  override def prev_delta(delta: BDM[Double]): BDM[Double] = {
+    delta
+  }
+
+  override def compute_gradient(backward_data: BDM[Double], delta: BDM[Double]): BDM[Double] = {
+    println("MAJOR ERROR - ACTIVATION LAYER SHOULD NOT COMPUTE GRADIENT")
+    backward_data
+  }
+
+}
 
 class Convolution2D(num_filters: Int, prev_channels: Int, filter_height: Int,
    filter_width: Int, img_height: Int, img_width: Int) extends Layer {
@@ -450,3 +614,30 @@ class Activation(var kind: String) extends Layer {
   }
 }
 
+class Optimizer() {
+  var lr: Double = 0.01
+  var s: Double = 0.9
+  var r: Double = 0.999
+  var optimizer_type: String = "adam"
+
+  def adam(lr: Double = 0.01, s: Double = 0.9, r: Double = 0.999): Optimizer = {
+    this.lr = lr
+    this.s = s
+    this.r = r
+    this.optimizer_type = "adam"
+    this
+  }
+
+  def momentum(lr: Double = 0.01, s: Double = 0.9): Optimizer = {
+    this.lr = lr
+    this.s = s
+    this.optimizer_type = "momentum"
+    this
+  }
+
+  def SGD(lr: Double = 0.01): Optimizer = {
+    this.lr = lr
+    this.optimizer_type = "sgd"
+    this
+  }
+}
