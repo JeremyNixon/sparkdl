@@ -23,12 +23,32 @@ model.compile(loss="categorical_crossentropy",
  metrics="Accuracy")
 
 val trained = model.fit(dataset, num_iters=500)
-
-trained.save("trained_model")
-val new_model = new Model().load("trained_model")
 ```
 
 ## Feedforward Neural Network
+```
+
+import org.apache.spark.ml.dl._
+import org.apache.spark.sql.SQLContext
+
+val sqlContext = new SQLContext(sc)
+val data = sqlContext.read.format("libsvm").load("path_to_dataset.txt")
+val dataset = data.withColumnRenamed("label", "labels")
+
+
+val model = new Sequential()
+model.add(new Dense(784, 100))
+model.add(new Activation("relu"))
+model.add(new Dense(100, 10))
+model.add(new Activation("softmax"))
+
+model.compile(loss="categorical_crossentropy",
+ optimizer=new Optimizer().adam(lr=.001),
+ metrics="Accuracy")
+
+val trained = model.fit(dataset, num_iters=500)
+
+```
 
 
 ## Contribution Guide
