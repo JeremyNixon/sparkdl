@@ -1,4 +1,4 @@
-<center> # Deep Learning for Spark MLlib </center>
+# Deep Learning for Spark MLlib
 
 # Features:
 Convolutional Layers
@@ -30,3 +30,4 @@ Relu Activation
 
  ## Convolutional Neural Network
 
+ 
