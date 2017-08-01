@@ -1,5 +1,9 @@
 # Deep Learning for Spark MLlib
 
+Distributed deep learning on Spark. Keras-like API and integration. 
+
+_Spark Package [homepage](https://spark-packages.org/package/JeremyNixon/sparkdl)._
+
 ## Convolutional Neural Network
 
 ```
