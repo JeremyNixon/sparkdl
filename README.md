@@ -1,8 +1,6 @@
 # Deep Learning for Spark MLlib
 
-Distributed deep learning on Spark. Keras-like API and integration. 
-
-_Spark Package [homepage](https://spark-packages.org/package/JeremyNixon/sparkdl)._
+Distributed deep learning on Spark. Keras-like API and integration. _Spark Package [homepage](https://spark-packages.org/package/JeremyNixon/sparkdl)._
 
 ## Convolutional Neural Network
 
@@ -14,7 +12,7 @@ val sqlContext = new SQLContext(sc)
 val data = sqlContext.read.format("libsvm").load("path_to_dataset.txt")
 val dataset = data.withColumnRenamed("label", "labels")
 
-
+# Set up architecture for convolutional neural network 
 val model = new Sequential()
 model.add(new Convolution2D(8, 1, 3, 3, 28, 28))
 model.add(new Activation("relu"))
@@ -39,7 +37,7 @@ val sqlContext = new SQLContext(sc)
 val data = sqlContext.read.format("libsvm").load("path_to_dataset.txt")
 val dataset = data.withColumnRenamed("label", "labels")
 
-
+# Set up architecture for feedforward neural network
 val model = new Sequential()
 model.add(new Dense(784, 100))
 model.add(new Activation("relu"))
