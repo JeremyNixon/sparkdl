@@ -51,7 +51,9 @@ model.compile(loss="categorical_crossentropy",
 val trained = model.fit(dataset, num_iters=500)
 
 ```
-
+# Installation Options
+## Spark Packages
+## Clone and Build
 
 ## Contribution Guide
  To contribute to the project, you'll need to build and modify your cloned fork of the project. 
