@@ -54,6 +54,24 @@ val trained = model.fit(dataset, num_iters=500)
 # Installation Options
 ## Spark Packages
 ## Clone and Build
+Clone the project with
+
+```
+git clone https://github.com/JeremyNixon/sparkdl.git
+```
+cd into the repository and run
+```
+sbt assembly
+```
+to build. Then to publish to ivy, run
+```
+sbt publish-local
+```
+and call spark with 
+ ```
+ ./spark-shell --packages default:sparkdl_2.11:0.0.1
+ ```
+ to run.
 
 ## Contribution Guide
  To contribute to the project, you'll need to build and modify your cloned fork of the project. 
