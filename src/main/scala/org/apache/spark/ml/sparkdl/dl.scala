@@ -371,11 +371,22 @@ class Sequential() {
     this
   }
 
+  /**
+   * Helper function for saving model to disk.
+   *
+   * @param f
+   * @param op
+   */
   def printToFile(f: java.io.File)(op: java.io.PrintWriter => Unit) {
     val p = new java.io.PrintWriter(f)
     try { op(p) } finally { p.close() }
   }
 
+  /**
+   * Model persistance function for saving model to disk.
+   *
+   * @param name
+   */
   def save(name: String): Unit = {
     val model = this
     var layers: Array[String] = new Array[String](model.layers.size)
@@ -410,7 +421,16 @@ class Sequential() {
 
 }
 
+/**
+ * Class for functions that operate over models
+ */
 class Model() {
+
+  /**
+   * Load model from disk into memory.
+   * @param name
+   * @return
+   */
   def load(name: String): Sequential = {
     val seq: Sequential = new Sequential()
     val lines = scala.io.Source.fromFile(name + "/layers.txt").mkString.split("\n")
@@ -432,6 +452,12 @@ class Model() {
   }
 }
 
+/**
+ * Fully Connected Neural Network Layer.
+ *
+ * @param input_shape
+ * @param num_hidden
+ */
 class Dense(input_shape: Int, num_hidden: Int) extends Layer {
   val r = scala.util.Random
   this.weights = BDM.ones[Double](input_shape, num_hidden).map(x => r.nextDouble-0.5) :* .01
@@ -445,6 +471,7 @@ class Dense(input_shape: Int, num_hidden: Int) extends Layer {
   def get_input_shape: Int = input_shape
 
   override def forward(forward_data: BDM[Double]): BDM[Double] = {
+    // Breeze's matrix multiplication syntax allows us to simply use *
     hidden_layer = forward_data * weights
     hidden_layer
   }
@@ -479,8 +506,24 @@ class Dropout(proportion: Double) extends Layer {
 
 }
 
-class Convolution2D(num_filters: Int, prev_channels: Int, filter_height: Int,
-                    filter_width: Int, img_height: Int, img_width: Int) extends Layer {
+/**
+ * Convolutional layer.
+ *
+ * @param num_filters
+ * @param prev_channels
+ * @param filter_height
+ * @param filter_width
+ * @param img_height
+ * @param img_width
+ */
+class Convolution2D(
+                     num_filters: Int, // Number of filters in convolutional layer
+                     prev_channels: Int, // Number of filters in previous layer
+                     filter_height: Int, // Height of filters in this convoltional layer
+                     filter_width: Int, // Width of filters in this convolutional layer
+                     img_height: Int, // Height of filter map input to this layer
+                     img_width: Int // Width of filter map input to this layer
+                   ) extends Layer {
   this.layer_type = "Convolution2D"
   this.weights = init_conv_parameters(num_filters,
     prev_channels, filter_height, filter_width, "weights")
@@ -491,6 +534,13 @@ class Convolution2D(num_filters: Int, prev_channels: Int, filter_height: Int,
   this.delta = null
   val len = img_height * img_width
 
+  /**
+   * Takes an image and filter as input and returns the output feature map.
+   *
+   * @param image
+   * @param filter
+   * @return
+   */
   def convolution(image: BDM[Double], filter: BDM[Double]): BDM[Double] = {
     val image_height = image.rows
     val image_width = image.cols
@@ -519,6 +569,12 @@ class Convolution2D(num_filters: Int, prev_channels: Int, filter_height: Int,
     convolved
   }
 
+  /**
+   * Applies a convolutional transform to each input feature map.
+   *
+   * @param input_data
+   * @return
+   */
   override def forward(input_data: BDM[Double]): BDM[Double] = {
     val outputs = BDM.zeros[Double](input_data.rows, img_height * img_width *
       num_filters * prev_channels)
@@ -543,6 +599,12 @@ class Convolution2D(num_filters: Int, prev_channels: Int, filter_height: Int,
     outputs
   }
 
+  /**
+   * Computes the error for the gradient for this layer and to pass back through the network.
+   *
+   * @param delta
+   * @return
+   */
   override def prev_delta(delta: BDM[Double]): BDM[Double] = {
     val output_delta = BDM.zeros[Double](delta.rows, delta.cols/num_filters)
     for (i <- 0 until delta.rows) {
@@ -562,6 +624,13 @@ class Convolution2D(num_filters: Int, prev_channels: Int, filter_height: Int,
     output_delta :/ num_filters.toDouble
   }
 
+  /**
+   * Computes the gradient for this layer's convolutional filters.
+   *
+   * @param backward_data
+   * @param delta
+   * @return
+   */
   override def compute_gradient(backward_data: BDM[Double], delta: BDM[Double]): BDM[Double] = {
     val gradient = BDM.zeros[Double](filter_height * num_filters * prev_channels, filter_width)
     for (i <- 0 until backward_data.rows) {
@@ -581,11 +650,29 @@ class Convolution2D(num_filters: Int, prev_channels: Int, filter_height: Int,
   }
 }
 
+/**
+ * Max Pooling layer to introduce local invariance.
+ *
+ * @param pool_height
+ * @param pool_width
+ * @param pool_stride_x
+ * @param pool_stride_y
+ * @param prev_channels
+ * @param num_filters
+ * @param img_height
+ * @param img_width
+ */
 class MaxPooling2D(pool_height: Int, pool_width: Int, pool_stride_x: Int, pool_stride_y: Int,
                    prev_channels: Int, num_filters: Int, img_height: Int, img_width: Int) extends Layer {
   this.layer_type = "MaxPooling2D"
   val len = img_height * img_width
 
+  /**
+   * Apply max pooling to each feature map.
+   *
+   * @param input_data
+   * @return
+   */
   override def forward(input_data: BDM[Double]): BDM[Double] = {
     val outputs = BDM.zeros[Double](input_data.rows, (img_height * img_width *
       prev_channels) / (pool_width * pool_height))
@@ -605,6 +692,12 @@ class MaxPooling2D(pool_height: Int, pool_width: Int, pool_stride_x: Int, pool_s
     outputs
   }
 
+  /**
+   * Computes the error through this layer to pass back through the network.
+   *
+   * @param delta
+   * @return
+   */
   override def prev_delta(delta: BDM[Double]): BDM[Double] = {
     val output_delta = BDM.zeros[Double](delta.rows, len * prev_channels)
     for (i <- 0 until delta.rows) {
@@ -622,18 +715,67 @@ class MaxPooling2D(pool_height: Int, pool_width: Int, pool_stride_x: Int, pool_s
     output_delta
   }
 
+  /**
+   * Max pooling has no weights, so this function just passes through.
+   *
+   * @param backward_data
+   * @param delta
+   * @return
+   */
   override def compute_gradient(backward_data: BDM[Double], delta: BDM[Double]): BDM[Double] = {
     println("MAJOR ERROR - POOLING LAYER SHOULD NOT COMPUTE GRADIENT")
     backward_data
   }
 }
 
+/**
+ * Holder for optimizers of the topology. Set up for alignment with the Keras API.
+ */
+class Optimizer() {
+  var lr: Double = 0.01
+  var s: Double = 0.9
+  var r: Double = 0.999
+  var optimizer_type: String = "adam"
+
+  def adam(lr: Double = 0.01, s: Double = 0.9, r: Double = 0.999): Optimizer = {
+    this.lr = lr
+    this.s = s
+    this.r = r
+    this.optimizer_type = "adam"
+    this
+  }
+
+  def momentum(lr: Double = 0.01, s: Double = 0.9): Optimizer = {
+    this.lr = lr
+    this.s = s
+    this.optimizer_type = "momentum"
+    this
+  }
+
+  def SGD(lr: Double = 0.01): Optimizer = {
+    this.lr = lr
+    this.optimizer_type = "sgd"
+    this
+  }
+}
+
+/**
+ * Class for activation functions, including the topology's output layer.
+ *
+ * @param kind
+ */
 class Activation(var kind: String) extends Layer {
   this.layer_type = "Activation"
   var hidden_layer: BDM[Double] = null
   this.delta = null
   var output_softmax: BDM[Double] = null
 
+  /**
+   * Evaluate the give activation function.
+   *
+   * @param input_data
+   * @return
+   */
   override def forward(input_data: BDM[Double]) : BDM[Double] = {
 
     if (kind == "relu") {
@@ -663,6 +805,13 @@ class Activation(var kind: String) extends Layer {
 
   def relu_grad(value: Double): Double = {if (value <= 0) {0} else {1}}
 
+
+  /**
+   * Compute the error through the activation function to pass back through the network.
+   *
+   * @param delta
+   * @return
+   */
   override def prev_delta(delta: BDM[Double]): BDM[Double] = {
     if (kind == "relu") {
       delta :* hidden_layer.map(relu_grad)
@@ -677,36 +826,16 @@ class Activation(var kind: String) extends Layer {
     }
   }
 
+  /**
+   * Activation functions don't have weights, and so this function just passes through.
+   *
+   * @param backward_data
+   * @param delta
+   * @return
+   */
   override def compute_gradient(backward_data: BDM[Double], delta: BDM[Double]): BDM[Double] = {
     println("MAJOR ERROR - ACTIVATION LAYER SHOULD NOT COMPUTE GRADIENT")
     backward_data
   }
 }
 
-class Optimizer() {
-  var lr: Double = 0.01
-  var s: Double = 0.9
-  var r: Double = 0.999
-  var optimizer_type: String = "adam"
-
-  def adam(lr: Double = 0.01, s: Double = 0.9, r: Double = 0.999): Optimizer = {
-    this.lr = lr
-    this.s = s
-    this.r = r
-    this.optimizer_type = "adam"
-    this
-  }
-
-  def momentum(lr: Double = 0.01, s: Double = 0.9): Optimizer = {
-    this.lr = lr
-    this.s = s
-    this.optimizer_type = "momentum"
-    this
-  }
-
-  def SGD(lr: Double = 0.01): Optimizer = {
-    this.lr = lr
-    this.optimizer_type = "sgd"
-    this
-  }
-}
