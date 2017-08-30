@@ -112,7 +112,7 @@ abstract class Layer {
    * @return
    */
   def init_conv_parameters(num_filters: Int, prev_channels: Int, filter_height: Int,
-     filter_width: Int, kind: String): BDM[Double] = {
+                           filter_width: Int, kind: String): BDM[Double] = {
     // Convolutional filter matrix is a vertical stack of filters. Order is that for each
     // previous channel, fill in the filters that map to the next impage map.
     val filters = BDM.zeros[Double](filter_height * num_filters * prev_channels, filter_width)
@@ -122,10 +122,10 @@ abstract class Layer {
         val y_index = filter_height * j + filter_height * i
         if (kind == "weights") {
           filters(y_index until y_index + filter_height, ::) :=
-              BDM.ones[Double](filter_height, filter_width).map(x => r.nextDouble-0.5) :* .01
+            BDM.ones[Double](filter_height, filter_width).map(x => r.nextDouble-0.5) :* .01
         } else {
           filters(y_index until y_index + filter_height, ::) :=
-              BDM.zeros[Double](filter_height, filter_width)
+            BDM.zeros[Double](filter_height, filter_width)
         }
       }
     }
@@ -144,43 +144,94 @@ class Sequential() {
   var layers: List[Layer] = new ArrayList[Layer]
 
   /**
-   * Initialize optimizer 
+   * Initialize optimizer
    */
   var optimizer: Optimizer = null
+
+  /**
+   * Initialize Learning Rate
+   */
   var lr: Double = .01
+
+  /**
+   * Initialize momentum term, exponential weight for moving average of the gradient
+   */
   var s: Double = .9
+
+  /**
+   * Initialize exponential weight for moving average of the history of gradient sizes
+   */
   var r: Double = .999
+
+  /**
+   * Determies which loss function to evaluate
+   */
   var loss: String = "categorical_crossentropy"
+
+  /**
+   * Determines which metric to display
+   */
   var metrics: String = "accuracy"
+
+  /**
+   * Determines which optimizer to apply
+   */
   var optimizer_type: String = "adam"
 
+  /**
+   * Appends layer to the end of the network topology.
+   *
+   * @param new_layer
+   * @return
+   */
   def add(new_layer: Layer): Unit = {
     layers.add(new_layer)
+
+    // Allows Dropout layer to be specified by user without manually adding activation function
     if (new_layer.layer_type == "Dropout") {
       layers.add(new Activation("linear"))
     }
   }
 
-  def evaluate(x: BDM[Double], y: BDV[Double]): Unit = {
-    var f = x
-    // Forward
+  /**
+   * Display network loss metrics to user
+   *
+   * @param train_eval
+   * @param labels
+   */
+  def evaluate(train_eval: BDM[Double], labels: BDV[Double]): Unit = {
+    var f = train_eval
+    // Forward through topology
     for (layer <- 0 to this.layers.size-1) {
       f = this.layers.get(layer).forward(f)
     }
-    var softmax = f
+    val softmax = f
+
+    // Column in softmax with maximum value corresponds to prediction
     val predictions = argmax(softmax, Axis._1)
-    val diff = predictions-convert(y, Int)
+
+    // Compute proportion of labels that are correct
+    val diff = predictions-convert(labels, Int)
     var count = 0
     for (i <- 0 to diff.size-1) {
       if (diff(i) == 0) {count += 1}
       else {}
     }
-    print("Val accuracy: ")
+    print("Train Accuracy: ")
     println(count.toDouble/diff.size.toDouble)
+
   }
 
+  /**
+   * Samples with replacement for stochastic gradient descent.
+   *
+   * @param x_train
+   * @param y_train
+   * @param batch_size
+   * @return
+   */
   def get_batch(x_train: BDM[Double], y_train: BDV[Int], batch_size: Int):
-    (BDM[Double], BDV[Int]) = {
+  (BDM[Double], BDV[Int]) = {
     val rand = scala.util.Random
     val x_batch = BDM.zeros[Double](batch_size, x_train.cols)
     val y_batch = BDV.zeros[Int](batch_size)
@@ -193,19 +244,37 @@ class Sequential() {
     (x_batch, y_batch)
   }
 
+  /**
+   * Passes along the information relating the loss, optimizer and metrics for evaluation.
+   * Compile call is just for Keras API compatibility.
+   *
+   * @param loss
+   * @param optimizer
+   * @param metrics
+   */
   def compile(loss: String, optimizer: Optimizer, metrics: String): Unit = {
     this.optimizer = optimizer
     this.loss = loss
     this.metrics = metrics
   }
 
+  /**
+   * Fits the parameters of the network.
+   *
+   * @param dataset
+   * @param num_iters
+   * @param batch_size
+   * @return
+   */
   def fit(dataset: Dataset[_], num_iters: Int = 1000, batch_size: Int = 16): Sequential = {
 
+    // Grab relevant variables for optimizaiton from the optimizer object.
     val lr = this.optimizer.lr
     val s = this.optimizer.s
     val r = this.optimizer.r
     val optimizer = this.optimizer.optimizer_type
 
+    // Convert Spark Dataframe to Breeze Dense Matrix and Dense Vector
     val xArray = dataset.select("features").rdd.map(v => v.getAs[Vector](0))
       .map(v => new BDV[Double](v.toArray)).collect()
     val x = new BDM[Double](xArray.length, xArray(0).length)
@@ -298,7 +367,7 @@ class Sequential() {
         evaluate(x(0 until 101, ::), y(0 until 101))
       }
     }
-//    println(evaluate(x(0 until 1000, ::), y(0 until 1000)))
+    //    println(evaluate(x(0 until 1000, ::), y(0 until 1000)))
     this
   }
 
@@ -411,7 +480,7 @@ class Dropout(proportion: Double) extends Layer {
 }
 
 class Convolution2D(num_filters: Int, prev_channels: Int, filter_height: Int,
-   filter_width: Int, img_height: Int, img_width: Int) extends Layer {
+                    filter_width: Int, img_height: Int, img_width: Int) extends Layer {
   this.layer_type = "Convolution2D"
   this.weights = init_conv_parameters(num_filters,
     prev_channels, filter_height, filter_width, "weights")
@@ -513,7 +582,7 @@ class Convolution2D(num_filters: Int, prev_channels: Int, filter_height: Int,
 }
 
 class MaxPooling2D(pool_height: Int, pool_width: Int, pool_stride_x: Int, pool_stride_y: Int,
-           prev_channels: Int, num_filters: Int, img_height: Int, img_width: Int) extends Layer {
+                   prev_channels: Int, num_filters: Int, img_height: Int, img_width: Int) extends Layer {
   this.layer_type = "MaxPooling2D"
   val len = img_height * img_width
 
